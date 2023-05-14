@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Подсчет рабочих часов</title>
+	<script src="assets/static/vue.global.js"></script>
+	<script src="assets/static/lodash.js"></script>
+	<script src="assets/static/exceljs/exceljs.min.js"></script>
+	<script src="assets/static/xlsx.js"></script>
+
+	<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+	<div id="app">
+		<input
+			type="file"
+			multiple
+			accept=".xlsx,.xlsm"
+			@change="filesSelectedHandler"
+		>
+		<div v-if="files.length">
+			<h4>Список файлов: </h4>
+			<span v-for="name in fileNames"
+				:class="{processed: finishedFiles.includes(name)}"
+			>
+				{{name}}&nbsp;
+			</span>
+		</div>
+		<div>{{isParsingInProgress ? 'Обработка файлов...' : '&nbsp;'}}</div>
+		<div v-if="areAllFilesParsed">
+			<button @click="exportToXlsx()">Скачать сводную таблицу</button>
+		</div>
+		<div style="display: none;">
+			<table>
+				<thead>
+					<tr>
+						<td>ФИО сиделки</td>
+						<td v-for="fileName in fileNames">
+							{{fileName}}
+						</td>
+					</tr>
+				</thead>
+				<tbody>
+					<tr v-for="data in resultData">
+						<td>{{data['ФИО сиделки']}}</td>
+						<td v-for="fileName in fileNames">
+							{{data[fileName] || '-'}}
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+	</div>
+	<script src="assets/js/main.js"></script>
+</body>
+</html>

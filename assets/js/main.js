@@ -7,10 +7,19 @@ const app = Vue.createApp({
 			isParsingInProgress: false,
 			finishedFiles: [],
 			parsedData: {},
+			mainTableName: 'MainTable',
 			fioColumnName: 'ФИО сиделки',
 			firstSheetName: 'Сводная таблица часов',
 			secondSheetName: 'Сводная таблица краткая',
 			firthSheetName: 'Часы главных специалистов',
+			isTestMode: false,
+			testFileNames: [
+				'Айзенкоп.xlsm',
+				'Алексеева.xlsm',
+				'Артемьева.xlsm',
+				'Бланк.xlsm',
+				'Боровская.xlsm',
+			],
 		}
 	},
 	methods: {
@@ -30,6 +39,26 @@ const app = Vue.createApp({
 				this.finishedFiles.push(f.name);
 			}
 			this.isParsingInProgress = false;
+		},
+		async testFilesLoader() {
+			this.isParsingInProgress = true;
+			this.parsedData = {};
+			this.finishedFiles = [];
+			for (const filename of this.testFileNames) {
+				const url = `/assets/test_files/${filename}`;
+				const data = await (await fetch(url)).arrayBuffer();
+				/* data is an ArrayBuffer */
+				const wb = XLSX.read(data);
+				const parsedData = this.parseWorkbook(wb);
+				if (!parsedData) {
+					alert(`Файл ${filename} не похож на табель. Обработка остановлена`);
+					return;
+				}
+				this.parsedData[filename.split('.')[0]] = parsedData;
+				this.finishedFiles.push(filename);
+			}
+			this.isParsingInProgress = false;
+			this.exportToXlsx();
 		},
 		parseWorkbook(wb) {
 			const sheet = wb.Sheets[wb.SheetNames[0]];
@@ -93,30 +122,48 @@ const app = Vue.createApp({
 				worksheet.getColumn(i).width = 6;
 			}
 
-			// суммы по начальникам
-			const sumRow = [`Количество сиделок: ${this.resultData.length}`];
-			const nurseCount = this.resultData.length;
-			const mainDataRowsStartAt = 3;
-			for (let i = 1; i <= this.bosses.length + 1; i++) {
-				const colLetter = this.convertIndexToLetter(i);
-				sumRow.push({
-					formula: `SUM(${colLetter}${mainDataRowsStartAt}:${colLetter}${mainDataRowsStartAt + nurseCount - 1})`
-				})
-			}
+			const sumRow = [
+				{ formula: `"Количество сиделок: " & ROWS(${this.mainTableName}[])` }
+			];
+			this.bosses.forEach(name => {
+				sumRow.push({ formula: `SUM(${this.mainTableName}[${name}])` })
+			})
+			sumRow.push({formula: `SUM(${this.mainTableName}[Итого])`})
 			worksheet.addRow(sumRow);
 
-			// вставка основных данных
-			const fromLetter = this.convertIndexToLetter(1);
-			const toLetter = this.convertIndexToLetter(this.bosses.length);
-			this.resultData.forEach((row, idx) => {
-				const rowNumber = idx + 3;
-				const values = [
-					row[this.fioColumnName],
-					...this.bosses.map(b => row[b]),
-					{formula: `SUM(${fromLetter}${rowNumber}:${toLetter}${rowNumber})`}
-				];
-				worksheet.addRow(values);
-			})
+			const columns = [
+				{ name: this.fioColumnName, filterButton: false, },
+				...this.bosses.map(name => ({ name, filterButton: false, })),
+				{ name: 'Итого', filterButton: false,},
+			];
+			const rows = this.resultData.map(row => ([
+				row[this.fioColumnName],
+				...this.bosses.map(b => row[b]),
+				{formula: 'SUM(INDIRECT(ADDRESS(ROW(),1)):INDIRECT(ADDRESS(ROW(),COLUMN()-1)))'}
+			]));
+			const table = {
+				name: this.mainTableName,
+				ref: 'A3',
+				headerRow: true,
+				totalsRow: false,
+				// style: {
+				// 	theme: 'TableStyleDark3',
+				// 	showRowStripes: true,
+				// },
+				columns,
+				rows
+			}
+			const tableObj = worksheet.addTable(table);
+			// колонку с сиделками делаем шире
+			worksheet.getColumn(1).width = this.maxNurseNameLength * 1.1;
+			// замораживаем верхнюю часть таблицы
+			worksheet.views = [
+				{state: 'frozen', xSplit: 0, ySplit: 2}
+			];
+			// скрываю хедер таблицы, так как без него она багнутая
+			// https://github.com/exceljs/exceljs/issues/1615
+			// https://github.com/exceljs/exceljs/issues/2277
+			worksheet.getRow(3).hidden = true;
 		},
 		addSecondWorksheet(wb) {
 			const worksheet = wb.addWorksheet(this.secondSheetName);
@@ -137,6 +184,44 @@ const app = Vue.createApp({
 			worksheet.getColumn(5).width = 20;
 			worksheet.addRow(['', '', 'Зарплата', '', '']);
 			const header = ['№ п/п', 'ФИО ГЛ.СПЕЦИАЛИСТА', 'ТАБЕЛЬ СДАН', 'ПРОВЕРЕН, ЧАСЫ', 'ЭЛЕКТР.ВАРИАНТ, ЧАСЫ'];
+
+			const columns = header.map((name, i) => {
+				const res = { name };
+				if (i === 0) {
+					res.totalsRowLabel = 'Итого: ';
+				}
+				if (['ТАБЕЛЬ СДАН', 'ПРОВЕРЕН, ЧАСЫ', 'ЭЛЕКТР.ВАРИАНТ, ЧАСЫ'].includes(name)) {
+					res.totalsRowFunction = 'sum';
+				}
+				return res;
+			});
+			const rows = [];
+			this.bosses.forEach((name, i) => {
+				rows.push([
+					i + 1,
+					name,
+					'',
+					'',
+					{ formula: `SUM(${this.mainTableName}[${name}])` },
+				]);
+			});
+			worksheet.addTable({
+				name: 'ThirdName',
+				ref: 'A2',
+				headerRow: true,
+				totalsRow: true,
+				columns,
+				rows,
+			});
+			worksheet.getRow(2).height = 30;
+			worksheet.getRow(2).eachCell(c => {
+				this.addBorderToCell(c);
+				c.style = {
+					alignment: { wrapText: true, horizontal: 'center' },
+					font: { bold: true },
+				}
+			});
+			return;
 			const headerRow = worksheet.addRow(header);
 			headerRow.height = 30;
 			headerRow.eachCell(c => {
@@ -177,20 +262,20 @@ const app = Vue.createApp({
 		}
 	},
 	// mounted: {},
-	watch: {
-		files: function() {
-			// console.log(this.files);
-		},
-	},
+	// watch: {},
 	computed: {
 		filesCount() {
-			return this.files.length;
+			return this.isTestMode ? this.fileNames.length : this.files.length;
 		},
 		fileNames() {
+			if (this.isTestMode) {
+				return this.testFileNames;
+			}
 			return this.files.map(f => f.name);
 		},
 		bosses() {
-			return this.fileNames.map(f => f.split('.')[0]);
+			const fileNames = this.isTestMode ? this.testFileNames : this.fileNames;
+			return fileNames.map(f => f.split('.')[0]);
 		},
 		areAllFilesParsed() {
 			return this.filesCount > 0 && this.filesCount === this.finishedFiles.length;
@@ -214,29 +299,6 @@ const app = Vue.createApp({
 			})
 			return Object.values(res);
 		},
-		resultWorkbook() {
-			const bosses  = this.fileNames.map(n => n.split('.')[0]);
-			const header = [this.fioColumnName, ...bosses, 'Сумма'];
-
-			const wb = XLSX.utils.book_new();
-			const ws = XLSX.utils.aoa_to_sheet([header]);
-			ws['A1'].s = {bold: true};
-			XLSX.utils.book_append_sheet(wb, ws, 'Сводная таблица часов');
-
-			return wb;
-
-			Object.keys(this.resultData).forEach(boss => {
-				header.push(boss.split('.')[0]);
-			})
-			header.push('Сумма');
-			XLSX.to_workbook
-			const rawData = [];
-			Object.values(this.parsedData).forEach(nurses => {
-				Object.entries(this.parsedData).forEach(([nurse, hours]) => {
-
-				})
-			})
-		}
 	},
 });
 

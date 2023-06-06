@@ -12,13 +12,17 @@
 </head>
 <body>
 	<div id="app">
+		<template v-if="isTestMode">
+			<input type="button" value="Загрузить тестовые файлы" @click="testFilesLoader">
+			<br>
+		</template>
 		<input
 			type="file"
 			multiple
 			accept=".xlsx,.xlsm"
 			@change="filesSelectedHandler"
 		>
-		<div v-if="files.length">
+		<div v-if="fileNames.length">
 			<h4>Список файлов: </h4>
 			<span v-for="name in fileNames"
 				:class="{processed: finishedFiles.includes(name)}"
@@ -51,6 +55,6 @@
 			</table>
 		</div>
 	</div>
-	<script src="assets/js/main.js"></script>
+	<script src="assets/js/main.js" type="module"></script>
 </body>
 </html>

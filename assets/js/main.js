@@ -167,13 +167,19 @@ const app = Vue.createApp({
 		},
 		addSecondWorksheet(wb) {
 			const worksheet = wb.addWorksheet(this.secondSheetName);
-			worksheet.getColumn(1).width = this.maxNurseNameLength * 1.1;
-			const sumColumnName = this.convertIndexToLetter(1 + this.bossesCount);
-			this.resultData.forEach((nurse, idx) => {
+			worksheet.getColumn(1).width = this.maxNurseNameLength * 1.4;
+			worksheet.getColumn(2).width = 20;
+			const sumColumnIndex = 2 + this.bossesCount;
+			worksheet.addRow([
+				this.fioColumnName,
+				{ formula: `"Итого: " & SUM(${this.mainTableName}[Итого])` }
+			]).font = { size: 14 };
+			const nurses = this.resultData.map(r => r[this.fioColumnName]);
+			nurses.sort().forEach(nurse => {
 				worksheet.addRow([
-					{ formula: `'${this.firstSheetName}'!A${idx + 3}`},
-					{ formula: `'${this.firstSheetName}'!${sumColumnName}${idx + 3}`},
-				])
+					nurse,
+					{ formula: `vlookup("${nurse}",${this.mainTableName}[],${sumColumnIndex},false)` },
+				], 'i');
 			})
 		},
 		addFirthWorksheet(wb) {
